@@ -8,7 +8,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432" # Expose only if needed externally, backend connects via Docker network
+      - "5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -20,43 +20,29 @@ services:
       timeout: 5s
       retries: 5
 
-  redis_cache:
-    image: redis:6-alpine
-    container_name: jenkins_dashboard_redis
-    ports:
-      - "6379:6379" # Expose only if needed externally
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build: ./backend
     container_name: jenkins_dashboard_backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - ./backend/app:/app/app # Mount app code for hot reloading
+      - ./backend/app:/app/app
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://user:password@postgres_db:5432/jenkins_dashboard}
-      REDIS_URL: ${REDIS_URL:-redis://redis_cache:6379/0}
       PROJECT_NAME: "Jenkins Dashboard Backend"
-      JENKINS_URLS: ${JENKINS_URLS:-http://host.docker.internal:8080} # For data collector to reach Jenkins if running outside Docker
-      # Add other backend specific env vars from .env.example
+      # Removed REDIS_URL and JENKINS_URLS specific to data_integration from here
+      # Ensure any other necessary backend env vars are loaded from .env
     depends_on:
       postgres_db:
         condition: service_healthy
-      redis_cache:
-        condition: service_healthy
     restart: unless-stopped
-    # healthcheck: # Optional: Add a healthcheck for the backend API
-    #   test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"] # Example
     #   interval: 15s
     #   timeout: 5s
     #   retries: 3
+
 
   frontend:
     build:
@@ -65,34 +51,9 @@ services:
     container_name: jenkins_dashboard_frontend
     ports:
       - "3000:80" # Nginx in frontend container listens on 80
-    # Nginx will proxy /api requests to backend:8000 (see frontend/nginx.conf)
-    # For local dev with Vite, Vite's proxy is used. Dockerfile uses Nginx for 'production' build.
     depends_on:
-      - backend # Or at least backend's port should be available
+      - backend
     restart: unless-stopped
-
-  data_integration:
-    build: ./data_integration
-    container_name: jenkins_dashboard_data_integration
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://user:password@postgres_db:5432/jenkins_dashboard} # If it needs direct DB access
-      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8000/api/builds/ingress} # For posting data
-      JENKINS_URLS: ${JENKINS_URLS} # Must be set in .env
-      JENKINS_USER: ${JENKINS_USER}
-      JENKINS_TOKEN: ${JENKINS_TOKEN}
-      POLLING_INTERVAL_SECONDS: ${POLLING_INTERVAL_SECONDS:-120}
-      DEFAULT_MONITORED_JOBS_PATHS: ${DEFAULT_MONITORED_JOBS_PATHS} # Must be set in .env
-      PYTHONUNBUFFERED: 1 # For seeing logs immediately
-    depends_on:
-      postgres_db: # If it writes directly, or backend if it only calls API
-        condition: service_healthy
-      backend: # If it calls the backend API
-        condition: service_started # Or service_healthy if backend has healthcheck
-    restart: unless-stopped
-    # Add volume if you want to hot-reload data_integration code (less common for this type of service)
-    # volumes:
-    #   - ./data_integration:/app
-
 
 volumes:
   postgres_data:

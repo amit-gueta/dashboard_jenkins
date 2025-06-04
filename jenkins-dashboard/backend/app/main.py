@@ -1,23 +1,30 @@
 from fastapi import FastAPI
-from app.core.config import settings
-# from app.api import builds, analytics # Will be uncommented later
-# from app.db.session import engine # Will be uncommented later
-# from app.db import base # Will be uncommented later
+from app.core.config import settings # Ensure settings are loaded
+from app.api import builds as api_builds_router # Alias for clarity
+from app.api import ingress as api_ingress_router # Alias for clarity
 
-# base.Base.metadata.create_all(bind=engine) # Create tables - consider using Alembic for migrations
+# Database table creation using init.sql via Docker Compose is preferred over create_all.
+# from app.db.session import engine
+# from app.db import base
+# base.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title=settings.PROJECT_NAME)
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" # Use API_V1_STR from settings
+)
 
-@app.get("/api/health")
+# Health check endpoint
+@app.get(f"{settings.API_V1_STR}/health", tags=["Health"])
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "project_name": settings.PROJECT_NAME}
 
-# app.include_router(builds.router, prefix="/api/builds", tags=["builds"])
-# app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+# Include API routers
+app.include_router(api_builds_router.router, prefix=f"{settings.API_V1_STR}/builds", tags=["Builds"])
+app.include_router(api_ingress_router.router, prefix=f"{settings.API_V1_STR}/ingress", tags=["Ingress"])
 
-# Placeholder for Celery app (if needed directly in main)
-# from app.core.celery_app import celery_app
-
+# Main entry point for Uvicorn (if run directly, e.g. python main.py)
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # This is mostly for local development if not using the Docker CMD.
+    # The Docker CMD directly calls: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
